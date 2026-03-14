@@ -1,0 +1,1061 @@
+{
+    "prompt_meta": {
+        "target_system": "Antigravity",
+        "prompt_version": "1.0.0",
+        "created_for": "MetaTrader 5 Expert Advisor",
+        "strategy": "CRT + TBS (Candle Range Theory + Time-Based Strategy)",
+        "instrument": "GOLD.i# / XAUUSD",
+        "ea_style": "Scalper",
+        "author_note": "Build a fully autonomous, scalping-focused MT5 EA integrating CRT pattern detection with TBS kill-zone timing, multi-timeframe confluence, live account diagnostics, and on-chart candlestick annotations. All components described below must be implemented."
+    },
+    "strategy_definition": {
+        "overview": "CRT+TBS is a Smart Money / ICT-derived scalping methodology. CRT (Candle Range Theory) identifies market structure through the AMD cycle on candle data. TBS (Time-Based Strategy) filters trades to high-probability time windows called kill zones. The combination ensures the EA only acts when BOTH pattern confluence and session timing align.",
+        "CRT": {
+            "full_name": "Candle Range Theory",
+            "core_concept": "Every candle (or candle range) goes through three phases: Accumulation, Manipulation, and Distribution (AMD). The EA must detect each phase and classify every significant candle or candle group accordingly.",
+            "AMD_cycle": {
+                "Accumulation": {
+                    "description": "Price consolidates in a defined range. Candle bodies are small relative to range. Volume is compressed. Defines the 'dealing range' for subsequent phases.",
+                    "detection": {
+                        "min_consolidation_candles": 3,
+                        "max_body_to_range_ratio": 0.35,
+                        "range_pip_threshold": 50,
+                        "label_on_chart": "ACC",
+                        "label_color": "#B5D4F4"
+                    }
+                },
+                "Manipulation": {
+                    "description": "Price sweeps beyond the accumulation high or low, hunting stop losses. This is a false breakout. Candle wick extends beyond range, but body closes back inside or near range. This is the PRIMARY entry signal.",
+                    "detection": {
+                        "wick_penetration_pips": 8,
+                        "body_close_inside_range": true,
+                        "rejection_candle_required": true,
+                        "min_wick_to_body_ratio": 1.5,
+                        "sweep_direction": "both",
+                        "label_on_chart": "MANIP",
+                        "label_color": "#F5C4B3"
+                    }
+                },
+                "Distribution": {
+                    "description": "Price moves decisively in the true direction after manipulation. Candle bodies are large, closes are near extremes. This is the target zone.",
+                    "detection": {
+                        "min_body_to_range_ratio": 0.60,
+                        "consecutive_directional_candles": 2,
+                        "label_on_chart": "DIST",
+                        "label_color": "#9FE1CB"
+                    }
+                }
+            },
+            "candle_analysis_components": {
+                "fair_value_gap": {
+                    "description": "FVG is a 3-candle pattern where candle 3 does not overlap with candle 1, leaving an imbalance. These zones act as magnets for price.",
+                    "detection": {
+                        "bullish_fvg": "Candle[1].Low > Candle[-1].High",
+                        "bearish_fvg": "Candle[1].High < Candle[-1].Low",
+                        "min_gap_pips": 10,
+                        "draw_zone_on_chart": true,
+                        "zone_color_bull": "#EAF3DE",
+                        "zone_color_bear": "#FCEBEB",
+                        "zone_opacity": 0.4
+                    }
+                },
+                "premium_discount_zones": {
+                    "description": "Split the AMD range at 50% (equilibrium). Above 50% = premium (sell zone). Below 50% = discount (buy zone).",
+                    "equilibrium_level": 0.50,
+                    "premium_upper_bound": 1.00,
+                    "premium_lower_bound": 0.50,
+                    "discount_upper_bound": 0.50,
+                    "discount_lower_bound": 0.00,
+                    "draw_on_chart": true,
+                    "premium_color": "#FAECE7",
+                    "discount_color": "#E1F5EE"
+                },
+                "candle_body_wick_ratio": {
+                    "description": "Used to classify candle type for pattern recognition.",
+                    "doji_max_body_ratio": 0.10,
+                    "hammer_min_wick_ratio": 2.0,
+                    "engulfing_body_overlap_required": true,
+                    "pin_bar_body_position": "top_third_or_bottom_third"
+                },
+                "structural_levels": {
+                    "swing_high": "Local high with at least 2 lower highs on each side",
+                    "swing_low": "Local low with at least 2 higher lows on each side",
+                    "break_of_structure": "Price closes beyond swing high/low on body close",
+                    "change_of_character": "First BOS in opposite direction after trend",
+                    "draw_bos_label": true,
+                    "draw_choch_label": true,
+                    "label_font_size": 8
+                },
+                "order_blocks": {
+                    "description": "Last bearish candle before a bullish impulse (bullish OB) or last bullish candle before a bearish impulse (bearish OB). High-probability reversal zones.",
+                    "look_back_candles": 5,
+                    "draw_on_chart": true,
+                    "bull_ob_color": "#EAF3DE",
+                    "bear_ob_color": "#FCEBEB",
+                    "ob_opacity": 0.5
+                },
+                "inducement_levels": {
+                    "description": "Minor swing highs/lows that price sweeps before the true move. CRT calls these 'inducements'. EA must detect and mark them.",
+                    "draw_on_chart": true,
+                    "label": "IDM",
+                    "color": "#FAEEDA"
+                }
+            }
+        },
+        "TBS": {
+            "full_name": "Time-Based Strategy",
+            "core_concept": "Trade only during defined kill zones when institutional order flow is highest. All times in broker server time. EA must auto-detect broker timezone offset relative to UTC.",
+            "kill_zones": {
+                "asian_session": {
+                    "name": "Asian Kill Zone",
+                    "utc_start": "00:00",
+                    "utc_end": "03:00",
+                    "enabled_default": false,
+                    "gold_relevance": "Low volatility, use only for range accumulation detection",
+                    "color": "#EEEDFE"
+                },
+                "london_open": {
+                    "name": "London Kill Zone",
+                    "utc_start": "02:00",
+                    "utc_end": "05:00",
+                    "enabled_default": true,
+                    "gold_relevance": "High — primary CRT manipulation events happen here",
+                    "color": "#E6F1FB"
+                },
+                "new_york_open": {
+                    "name": "New York Kill Zone",
+                    "utc_start": "07:00",
+                    "utc_end": "10:00",
+                    "enabled_default": true,
+                    "gold_relevance": "Highest — strongest XAUUSD momentum and volume",
+                    "color": "#FAEEDA"
+                },
+                "new_york_lunch": {
+                    "name": "NY Lunch (avoid)",
+                    "utc_start": "12:00",
+                    "utc_end": "13:00",
+                    "enabled_default": false,
+                    "gold_relevance": "Low liquidity — exclude from trading",
+                    "color": "#FCEBEB"
+                },
+                "new_york_close": {
+                    "name": "NY PM Session",
+                    "utc_start": "13:00",
+                    "utc_end": "16:00",
+                    "enabled_default": false,
+                    "gold_relevance": "Medium — secondary scalp opportunities",
+                    "color": "#E1F5EE"
+                }
+            },
+            "reference_levels": {
+                "midnight_open": {
+                    "description": "00:00 UTC open price. Critical CRT reference for daily AMD range.",
+                    "draw_on_chart": true,
+                    "line_style": "dashed",
+                    "color": "#888780"
+                },
+                "london_open_price": {
+                    "description": "02:00 UTC open price.",
+                    "draw_on_chart": true,
+                    "line_style": "dashed",
+                    "color": "#378ADD"
+                },
+                "ny_open_price": {
+                    "description": "07:00 UTC open price. Highest significance for XAUUSD.",
+                    "draw_on_chart": true,
+                    "line_style": "dashed",
+                    "color": "#BA7517"
+                },
+                "previous_day_high": {
+                    "draw_on_chart": true,
+                    "label": "PDH",
+                    "line_style": "dotted",
+                    "color": "#9FE1CB"
+                },
+                "previous_day_low": {
+                    "draw_on_chart": true,
+                    "label": "PDL",
+                    "line_style": "dotted",
+                    "color": "#F5C4B3"
+                }
+            }
+        }
+    },
+    "ea_configuration": {
+        "ea_name": "CRT_TBS_Gold_Scalper",
+        "magic_number": 202501,
+        "version": "1.0.0",
+        "description": "CRT + TBS scalper for XAUUSD. Detects AMD cycle, FVGs, order blocks, and inducements. Trades only within kill zones. Fully annotated chart with dashboard.",
+        "language": "MQL5",
+        "framework": "MetaTrader 5 (build 3000+)",
+        "copyright": "Custom EA — CRT+TBS Strategy",
+        "input_parameters": {
+            "strategy_settings": {
+                "group": "=== Strategy Settings ===",
+                "params": {
+                    "InpHTF_Timeframe": {
+                        "type": "ENUM_TIMEFRAMES",
+                        "default": "PERIOD_H4",
+                        "options": [
+                            "PERIOD_H1",
+                            "PERIOD_H4",
+                            "PERIOD_D1"
+                        ],
+                        "description": "Higher timeframe for HTF bias and AMD structure"
+                    },
+                    "InpMTF_Timeframe": {
+                        "type": "ENUM_TIMEFRAMES",
+                        "default": "PERIOD_M15",
+                        "options": [
+                            "PERIOD_M5",
+                            "PERIOD_M15",
+                            "PERIOD_M30"
+                        ],
+                        "description": "Mid timeframe for CRT confirmation"
+                    },
+                    "InpLTF_Timeframe": {
+                        "type": "ENUM_TIMEFRAMES",
+                        "default": "PERIOD_M5",
+                        "options": [
+                            "PERIOD_M1",
+                            "PERIOD_M5"
+                        ],
+                        "description": "Entry/execution timeframe"
+                    },
+                    "InpManipulation_MinWickPips": {
+                        "type": "double",
+                        "default": 8.0,
+                        "min": 3.0,
+                        "max": 50.0,
+                        "description": "Minimum wick penetration (in pips) to confirm manipulation sweep"
+                    },
+                    "InpFVG_MinGapPips": {
+                        "type": "double",
+                        "default": 10.0,
+                        "description": "Minimum fair value gap size in pips to qualify as tradeable FVG"
+                    },
+                    "InpConsolidation_Candles": {
+                        "type": "int",
+                        "default": 3,
+                        "min": 2,
+                        "max": 10,
+                        "description": "Minimum candles to confirm accumulation phase"
+                    },
+                    "InpBiasConfirmation": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "Require HTF bias confirmation before LTF entry"
+                    },
+                    "InpOB_Enabled": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "Enable Order Block detection and zone drawing"
+                    },
+                    "InpIDM_Enabled": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "Enable Inducement level detection"
+                    }
+                }
+            },
+            "session_settings": {
+                "group": "=== TBS Kill Zone Settings ===",
+                "params": {
+                    "InpBrokerUTC_Offset": {
+                        "type": "int",
+                        "default": 2,
+                        "min": -12,
+                        "max": 14,
+                        "description": "Broker server UTC offset in hours. Auto-detected if set to 999."
+                    },
+                    "InpAutoDetect_Timezone": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "Automatically detect broker timezone offset via server time"
+                    },
+                    "InpLondon_KZ_Enabled": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "Enable London Kill Zone (02:00-05:00 UTC)"
+                    },
+                    "InpNY_KZ_Enabled": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "Enable New York Kill Zone (07:00-10:00 UTC)"
+                    },
+                    "InpAsian_KZ_Enabled": {
+                        "type": "bool",
+                        "default": false,
+                        "description": "Enable Asian Kill Zone (00:00-03:00 UTC)"
+                    },
+                    "InpNYPM_KZ_Enabled": {
+                        "type": "bool",
+                        "default": false,
+                        "description": "Enable New York PM session (13:00-16:00 UTC)"
+                    },
+                    "InpDraw_KillZones": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "Draw kill zone highlight boxes on chart background"
+                    },
+                    "InpDraw_SessionLevels": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "Draw midnight open, London open, NY open horizontal lines"
+                    }
+                }
+            },
+            "risk_management": {
+                "group": "=== Risk Management ===",
+                "params": {
+                    "InpRisk_Mode": {
+                        "type": "ENUM",
+                        "options": [
+                            "FIXED_LOT",
+                            "PERCENT_RISK",
+                            "FIXED_DOLLAR_RISK"
+                        ],
+                        "default": "PERCENT_RISK",
+                        "description": "Lot sizing mode"
+                    },
+                    "InpFixed_Lot": {
+                        "type": "double",
+                        "default": 0.01,
+                        "min": 0.01,
+                        "step": 0.01,
+                        "description": "Fixed lot size (used when Risk_Mode = FIXED_LOT)"
+                    },
+                    "InpRisk_Percent": {
+                        "type": "double",
+                        "default": 1.0,
+                        "min": 0.1,
+                        "max": 5.0,
+                        "description": "Risk percent of account balance per trade"
+                    },
+                    "InpMax_Lot": {
+                        "type": "double",
+                        "default": 1.0,
+                        "description": "Maximum allowed lot size regardless of calculation"
+                    },
+                    "InpSL_Pips": {
+                        "type": "double",
+                        "default": 20.0,
+                        "description": "Fixed stop loss in pips (overridden if InpDynamic_SL = true)"
+                    },
+                    "InpDynamic_SL": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "If true, SL is placed beyond manipulation wick + buffer"
+                    },
+                    "InpSL_Buffer_Pips": {
+                        "type": "double",
+                        "default": 5.0,
+                        "description": "Extra pips beyond wick for SL placement"
+                    },
+                    "InpTP1_RR": {
+                        "type": "double",
+                        "default": 1.5,
+                        "description": "Take profit 1 as Risk:Reward ratio (e.g. 1.5 = 1.5R)"
+                    },
+                    "InpTP2_RR": {
+                        "type": "double",
+                        "default": 3.0,
+                        "description": "Take profit 2 as Risk:Reward ratio (e.g. 3.0 = 3R). 0 = disabled."
+                    },
+                    "InpTP1_ClosePercent": {
+                        "type": "double",
+                        "default": 50.0,
+                        "description": "Percent of position to close at TP1"
+                    },
+                    "InpBreakeven_After_TP1": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "Move SL to breakeven after TP1 is hit"
+                    },
+                    "InpTrailing_Stop": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "Enable trailing stop after breakeven"
+                    },
+                    "InpTrail_Pips": {
+                        "type": "double",
+                        "default": 10.0,
+                        "description": "Trailing stop distance in pips"
+                    },
+                    "InpMax_Spread_Pips": {
+                        "type": "double",
+                        "default": 30.0,
+                        "description": "Skip trade if spread exceeds this value (in pips/points for XAUUSD)"
+                    },
+                    "InpMax_Slippage_Points": {
+                        "type": "int",
+                        "default": 10,
+                        "description": "Maximum allowed slippage in points on order execution"
+                    },
+                    "InpMax_Daily_Trades": {
+                        "type": "int",
+                        "default": 5,
+                        "description": "Maximum number of trades per day. 0 = unlimited."
+                    },
+                    "InpMax_Daily_Loss_Percent": {
+                        "type": "double",
+                        "default": 3.0,
+                        "description": "Stop trading for the day if daily drawdown exceeds this percent"
+                    }
+                }
+            },
+            "scalper_settings": {
+                "group": "=== Scalper-Specific Settings ===",
+                "params": {
+                    "InpScalper_Mode": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "Enable scalper mode — faster entries, tighter parameters"
+                    },
+                    "InpScalper_TP_Pips": {
+                        "type": "double",
+                        "default": 15.0,
+                        "description": "Quick scalp TP in pips (used when scalper mode is active)"
+                    },
+                    "InpScalper_SL_Pips": {
+                        "type": "double",
+                        "default": 10.0,
+                        "description": "Quick scalp SL in pips (used when scalper mode is active)"
+                    },
+                    "InpScalper_Min_Momentum_Pips": {
+                        "type": "double",
+                        "default": 5.0,
+                        "description": "Minimum candle close momentum in pips to trigger entry"
+                    },
+                    "InpEntry_On_Close": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "If true, enter on candle close confirmation. If false, enter on signal candle open."
+                    },
+                    "InpAllow_Multiple_Trades": {
+                        "type": "bool",
+                        "default": false,
+                        "description": "Allow multiple concurrent open trades from this EA"
+                    }
+                }
+            },
+            "display_settings": {
+                "group": "=== Dashboard & Display Settings ===",
+                "params": {
+                    "InpShow_Dashboard": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "Show account and strategy dashboard on chart"
+                    },
+                    "InpDashboard_Corner": {
+                        "type": "ENUM_BASE_CORNER",
+                        "default": "CORNER_LEFT_UPPER",
+                        "options": [
+                            "CORNER_LEFT_UPPER",
+                            "CORNER_RIGHT_UPPER",
+                            "CORNER_LEFT_LOWER",
+                            "CORNER_RIGHT_LOWER"
+                        ],
+                        "description": "Dashboard anchor corner"
+                    },
+                    "InpShow_CandleLabels": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "Show ACC / MANIP / DIST labels on chart candles"
+                    },
+                    "InpShow_FVG_Zones": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "Draw FVG zones on chart"
+                    },
+                    "InpShow_OB_Zones": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "Draw order block zones on chart"
+                    },
+                    "InpShow_PD_Zones": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "Draw premium/discount zone overlay"
+                    },
+                    "InpShow_BOS_CHOCH": {
+                        "type": "bool",
+                        "default": true,
+                        "description": "Draw break-of-structure and change-of-character labels"
+                    },
+                    "InpChart_Theme": {
+                        "type": "ENUM",
+                        "options": [
+                            "DARK",
+                            "LIGHT"
+                        ],
+                        "default": "DARK",
+                        "description": "Dashboard color theme"
+                    }
+                }
+            }
+        }
+    },
+    "account_information_module": {
+        "description": "EA must retrieve and display real-time account metrics on the chart dashboard. All values must refresh on every tick.",
+        "required_fields": {
+            "account_balance": {
+                "function": "AccountInfoDouble(ACCOUNT_BALANCE)",
+                "label": "Balance",
+                "format": "currency_2dp",
+                "display": true
+            },
+            "account_equity": {
+                "function": "AccountInfoDouble(ACCOUNT_EQUITY)",
+                "label": "Equity",
+                "format": "currency_2dp",
+                "display": true
+            },
+            "account_margin": {
+                "function": "AccountInfoDouble(ACCOUNT_MARGIN)",
+                "label": "Margin Used",
+                "format": "currency_2dp",
+                "display": true
+            },
+            "account_free_margin": {
+                "function": "AccountInfoDouble(ACCOUNT_FREEMARGIN)",
+                "label": "Free Margin",
+                "format": "currency_2dp",
+                "display": true
+            },
+            "account_margin_level": {
+                "function": "AccountInfoDouble(ACCOUNT_MARGIN_LEVEL)",
+                "label": "Margin Level",
+                "format": "percent_2dp",
+                "display": true,
+                "alert_threshold_percent": 150.0
+            },
+            "account_leverage": {
+                "function": "AccountInfoInteger(ACCOUNT_LEVERAGE)",
+                "label": "Leverage",
+                "format": "ratio_prefix_1to",
+                "display": true
+            },
+            "account_profit": {
+                "function": "AccountInfoDouble(ACCOUNT_PROFIT)",
+                "label": "Floating P&L",
+                "format": "currency_2dp",
+                "color_code": true,
+                "positive_color": "#1D9E75",
+                "negative_color": "#D85A30",
+                "display": true
+            },
+            "current_spread": {
+                "function": "SymbolInfoInteger(Symbol(), SYMBOL_SPREAD)",
+                "label": "Spread",
+                "format": "integer_points",
+                "display": true,
+                "alert_when_above": "InpMax_Spread_Pips"
+            },
+            "pip_value": {
+                "function": "MarketInfo / SymbolInfoDouble(Symbol(), SYMBOL_TRADE_TICK_VALUE)",
+                "label": "Pip Value",
+                "format": "currency_4dp",
+                "display": true
+            },
+            "lot_size_calculated": {
+                "description": "Show the calculated lot size for next trade based on current risk settings",
+                "label": "Next Lot",
+                "format": "2dp",
+                "display": true
+            },
+            "max_slippage": {
+                "function": "InpMax_Slippage_Points (input param display)",
+                "label": "Max Slip",
+                "format": "integer_points",
+                "display": true
+            },
+            "daily_trade_count": {
+                "label": "Trades Today",
+                "format": "integer",
+                "display": true
+            },
+            "daily_pnl": {
+                "label": "Daily P&L",
+                "format": "currency_2dp",
+                "color_code": true,
+                "display": true
+            },
+            "account_server": {
+                "function": "AccountInfoString(ACCOUNT_SERVER)",
+                "label": "Server",
+                "display": true
+            },
+            "account_name": {
+                "function": "AccountInfoString(ACCOUNT_NAME)",
+                "label": "Account",
+                "display": true
+            },
+            "account_currency": {
+                "function": "AccountInfoString(ACCOUNT_CURRENCY)",
+                "label": "Currency",
+                "display": true
+            }
+        },
+        "dashboard_layout": {
+            "style": "compact_panel",
+            "title": "CRT+TBS GOLD SCALPER",
+            "sections": [
+                {
+                    "section_name": "ACCOUNT",
+                    "fields": [
+                        "account_name",
+                        "account_currency",
+                        "account_balance",
+                        "account_equity",
+                        "account_profit",
+                        "account_leverage"
+                    ]
+                },
+                {
+                    "section_name": "MARGIN",
+                    "fields": [
+                        "account_margin",
+                        "account_free_margin",
+                        "account_margin_level"
+                    ]
+                },
+                {
+                    "section_name": "MARKET",
+                    "fields": [
+                        "current_spread",
+                        "pip_value",
+                        "max_slippage"
+                    ]
+                },
+                {
+                    "section_name": "TRADE",
+                    "fields": [
+                        "lot_size_calculated",
+                        "daily_trade_count",
+                        "daily_pnl"
+                    ]
+                },
+                {
+                    "section_name": "SESSION",
+                    "fields": [
+                        "active_kill_zone",
+                        "session_bias",
+                        "next_kill_zone_countdown"
+                    ]
+                }
+            ]
+        }
+    },
+    "candlestick_pattern_analysis": {
+        "description": "EA must detect, classify, and annotate each of the following candlestick patterns directly on the chart. Labels should appear above or below the relevant candle. All analysis runs on InpLTF_Timeframe.",
+        "patterns": {
+            "doji": {
+                "condition": "Body / (High - Low) < 0.10",
+                "label": "DOJI",
+                "significance": "Indecision — watch for CRT manipulation next candle",
+                "draw_arrow": false,
+                "label_offset_pips": 3
+            },
+            "bullish_engulfing": {
+                "condition": "Current bullish body fully engulfs prior bearish body",
+                "label": "BULL ENG",
+                "significance": "Strong bullish reversal signal. High weight in discount zone.",
+                "draw_arrow": true,
+                "arrow_direction": "up"
+            },
+            "bearish_engulfing": {
+                "condition": "Current bearish body fully engulfs prior bullish body",
+                "label": "BEAR ENG",
+                "significance": "Strong bearish reversal signal. High weight in premium zone.",
+                "draw_arrow": true,
+                "arrow_direction": "down"
+            },
+            "hammer": {
+                "condition": "Lower wick >= 2 * Body AND Body in top third of range AND bullish",
+                "label": "HAMMER",
+                "significance": "Bullish reversal. Extra weight if at CRT manipulation low.",
+                "draw_arrow": true,
+                "arrow_direction": "up"
+            },
+            "shooting_star": {
+                "condition": "Upper wick >= 2 * Body AND Body in bottom third of range AND bearish",
+                "label": "SHOOT*",
+                "significance": "Bearish reversal. Extra weight if at CRT manipulation high.",
+                "draw_arrow": true,
+                "arrow_direction": "down"
+            },
+            "pin_bar": {
+                "condition": "Wick > 2.5 * Body in any direction. ICT-style rejection candle.",
+                "label": "PIN",
+                "significance": "Core CRT manipulation rejection. Highest entry priority.",
+                "draw_arrow": true,
+                "highlight_box": true,
+                "highlight_color": "#FAEEDA"
+            },
+            "inside_bar": {
+                "condition": "High < Prior High AND Low > Prior Low",
+                "label": "IB",
+                "significance": "Accumulation / compression. Often precedes CRT manipulation.",
+                "draw_arrow": false
+            },
+            "morning_star": {
+                "condition": "3-candle pattern: bearish + doji/small + bullish gap-up close",
+                "label": "MSTAR",
+                "significance": "Bullish reversal. Confirm with discount zone + LDN/NY kill zone.",
+                "draw_arrow": true,
+                "arrow_direction": "up"
+            },
+            "evening_star": {
+                "condition": "3-candle pattern: bullish + doji/small + bearish gap-down close",
+                "label": "ESTAR",
+                "significance": "Bearish reversal. Confirm with premium zone.",
+                "draw_arrow": true,
+                "arrow_direction": "down"
+            },
+            "bullish_marubozu": {
+                "condition": "Minimal wicks, body > 85% of range, bullish close",
+                "label": "BULL MARU",
+                "significance": "Strong distribution candle. Confirms bullish CRT target direction.",
+                "draw_arrow": false
+            },
+            "bearish_marubozu": {
+                "condition": "Minimal wicks, body > 85% of range, bearish close",
+                "label": "BEAR MARU",
+                "significance": "Strong distribution candle. Confirms bearish CRT target direction.",
+                "draw_arrow": false
+            },
+            "tweezer_top": {
+                "condition": "Two consecutive candles with matching highs, second bearish",
+                "label": "TWZR-T",
+                "significance": "Double rejection at high. High-precision sell signal in premium.",
+                "draw_arrow": true,
+                "arrow_direction": "down"
+            },
+            "tweezer_bottom": {
+                "condition": "Two consecutive candles with matching lows, second bullish",
+                "label": "TWZR-B",
+                "significance": "Double rejection at low. High-precision buy signal in discount.",
+                "draw_arrow": true,
+                "arrow_direction": "up"
+            }
+        },
+        "annotation_rules": {
+            "font_size": 7,
+            "label_color_bull": "#1D9E75",
+            "label_color_bear": "#D85A30",
+            "label_color_neutral": "#888780",
+            "arrow_size": 1,
+            "max_labels_visible": 20,
+            "cleanup_old_labels": true
+        }
+    },
+    "entry_logic": {
+        "description": "Full entry decision tree. All conditions must be met before order is submitted.",
+        "required_conditions": [
+            {
+                "id": 1,
+                "name": "Kill zone active",
+                "check": "Current server time is within at least one enabled TBS kill zone",
+                "fail_action": "Skip — do not trade"
+            },
+            {
+                "id": 2,
+                "name": "Spread filter",
+                "check": "Current spread <= InpMax_Spread_Pips",
+                "fail_action": "Skip — log spread rejection"
+            },
+            {
+                "id": 3,
+                "name": "Daily trade limit",
+                "check": "Daily trade count < InpMax_Daily_Trades",
+                "fail_action": "Stop trading for the day"
+            },
+            {
+                "id": 4,
+                "name": "Daily loss limit",
+                "check": "Daily drawdown < InpMax_Daily_Loss_Percent",
+                "fail_action": "Stop trading for the day — display alert on dashboard"
+            },
+            {
+                "id": 5,
+                "name": "HTF bias confirmed",
+                "check": "HTF timeframe shows clear AMD structure with Accumulation phase identified. If InpBiasConfirmation = true.",
+                "fail_action": "Skip"
+            },
+            {
+                "id": 6,
+                "name": "Manipulation sweep detected on LTF",
+                "check": "Wick penetration > InpManipulation_MinWickPips AND body closes inside previous range AND rejection candle confirmed",
+                "fail_action": "Skip — reset and wait for next manipulation"
+            },
+            {
+                "id": 7,
+                "name": "Direction alignment",
+                "check": "Sweep direction aligns with HTF bias: sweep of lows in HTF bullish context = buy; sweep of highs in HTF bearish context = sell",
+                "fail_action": "Skip — counter-trend setups disabled unless InpCounterTrend = true"
+            },
+            {
+                "id": 8,
+                "name": "FVG or OB confluence (optional boost)",
+                "check": "If price is entering a nearby FVG or Order Block, increase signal score by 1",
+                "fail_action": "Does not block entry — used for signal scoring only"
+            }
+        ],
+        "signal_scoring": {
+            "description": "Each condition adds to the signal score. Trade is taken only if score >= InpMin_Signal_Score.",
+            "score_map": {
+                "kill_zone_active": 1,
+                "manipulation_sweep": 2,
+                "htf_bias_aligned": 2,
+                "fvg_confluence": 1,
+                "ob_confluence": 1,
+                "premium_discount_zone": 1,
+                "engulfing_or_pinbar": 1
+            },
+            "InpMin_Signal_Score": 5
+        },
+        "order_execution": {
+            "order_type": "MARKET",
+            "deviation": "InpMax_Slippage_Points",
+            "fill_mode": "ORDER_FILLING_FOK",
+            "retry_on_requote": true,
+            "retry_attempts": 3,
+            "retry_delay_ms": 500,
+            "comment_format": "CRT_TBS|{session}|{score}|{pattern}"
+        }
+    },
+    "exit_logic": {
+        "take_profit_levels": {
+            "TP1": {
+                "target": "InpTP1_RR x risk in pips, or 50% of AMD distribution range",
+                "close_percent": "InpTP1_ClosePercent",
+                "action_after": "Move SL to breakeven if InpBreakeven_After_TP1 = true"
+            },
+            "TP2": {
+                "target": "InpTP2_RR x risk in pips, or FVG fill level",
+                "close_percent": "Remainder of position",
+                "enabled": "InpTP2_RR > 0"
+            }
+        },
+        "stop_loss": {
+            "dynamic": "Beyond manipulation wick + InpSL_Buffer_Pips",
+            "fallback": "InpSL_Pips fixed if dynamic calculation returns invalid value"
+        },
+        "trailing_stop": {
+            "enabled": "InpTrailing_Stop",
+            "activate_after": "Breakeven reached",
+            "trail_distance_pips": "InpTrail_Pips",
+            "implementation": "OnTick trailing via PositionModify"
+        },
+        "forced_exit": {
+            "end_of_session": {
+                "enabled": true,
+                "close_before_utc": "16:30",
+                "description": "Close all EA trades before end-of-day to avoid overnight exposure on XAUUSD"
+            },
+            "daily_loss_limit_hit": {
+                "enabled": true,
+                "action": "Close all EA trades and halt EA for the day"
+            },
+            "margin_level_critical": {
+                "threshold_percent": 120.0,
+                "action": "Close all EA trades immediately"
+            }
+        }
+    },
+    "chart_visualization": {
+        "description": "All drawings must be created as chart objects using ObjectCreate() and must be cleaned up on EA removal (OnDeinit).",
+        "objects": {
+            "kill_zone_boxes": {
+                "type": "OBJ_RECTANGLE",
+                "usage": "Background shading for each kill zone time window per day",
+                "draw_back": true,
+                "colors": {
+                    "london": "C'173,204,230'",
+                    "ny": "C'250,206,100'",
+                    "asian": "C'206,200,249'",
+                    "ny_pm": "C'195,230,210'"
+                },
+                "opacity": 15
+            },
+            "session_open_lines": {
+                "type": "OBJ_HLINE or OBJ_TREND",
+                "draw_types": [
+                    "Midnight Open",
+                    "London Open",
+                    "NY Open",
+                    "Previous Day High",
+                    "Previous Day Low"
+                ],
+                "style": "STYLE_DASH",
+                "width": 1
+            },
+            "fvg_zones": {
+                "type": "OBJ_RECTANGLE",
+                "fill": true,
+                "opacity": 40,
+                "extend_right": true
+            },
+            "order_block_zones": {
+                "type": "OBJ_RECTANGLE",
+                "fill": true,
+                "opacity": 50,
+                "extend_right": true
+            },
+            "pd_zone_overlay": {
+                "type": "OBJ_RECTANGLE",
+                "premium_label": "PREMIUM",
+                "discount_label": "DISCOUNT",
+                "eq_line": "OBJ_HLINE at 50% of AMD range"
+            },
+            "amd_labels": {
+                "type": "OBJ_TEXT",
+                "labels": [
+                    "ACC",
+                    "MANIP",
+                    "DIST"
+                ],
+                "font": "Arial",
+                "size": 8,
+                "bold": false
+            },
+            "bos_choch_labels": {
+                "type": "OBJ_TEXT + OBJ_TREND",
+                "bos_label": "BOS",
+                "choch_label": "CHoCH",
+                "line_through_break_level": true
+            },
+            "candle_pattern_labels": {
+                "type": "OBJ_TEXT",
+                "placement": "Above or below candle wick",
+                "arrow_objects": "OBJ_ARROW_UP / OBJ_ARROW_DOWN",
+                "cleanup_lookback_bars": 100
+            },
+            "trade_arrows": {
+                "entry_buy": "OBJ_ARROW_BUY",
+                "entry_sell": "OBJ_ARROW_SELL",
+                "sl_line": "OBJ_HLINE (dashed red)",
+                "tp1_line": "OBJ_HLINE (dashed green)",
+                "tp2_line": "OBJ_HLINE (dashed dark green)"
+            },
+            "dashboard_panel": {
+                "type": "OBJ_RECTANGLE_LABEL + OBJ_LABEL",
+                "update_frequency": "OnTick",
+                "position": "InpDashboard_Corner",
+                "width_pixels": 260,
+                "padding_pixels": 8
+            }
+        }
+    },
+    "multi_timeframe_logic": {
+        "description": "EA uses three timeframe layers simultaneously. Data is fetched using CopyRates() or iBarShift per timeframe.",
+        "layers": {
+            "HTF": {
+                "purpose": "Overall AMD structure, directional bias",
+                "timeframe": "InpHTF_Timeframe",
+                "lookback_bars": 50,
+                "updates": "On new bar only (OnCalculate rate_total change)"
+            },
+            "MTF": {
+                "purpose": "CRT pattern confirmation, FVG and OB identification",
+                "timeframe": "InpMTF_Timeframe",
+                "lookback_bars": 100,
+                "updates": "On new MTF bar"
+            },
+            "LTF": {
+                "purpose": "Precise entry timing, candle pattern detection, execution",
+                "timeframe": "InpLTF_Timeframe",
+                "lookback_bars": 200,
+                "updates": "Every tick for signals, new bar for pattern recalculation"
+            }
+        },
+        "confluence_rules": {
+            "htf_bullish_context": "HTF price above AMD equilibrium AND BOS to upside on HTF",
+            "htf_bearish_context": "HTF price below AMD equilibrium AND BOS to downside on HTF",
+            "mtf_confirmation": "MTF shows matching FVG or OB in direction of HTF bias",
+            "ltf_trigger": "LTF shows manipulation sweep + rejection candle in kill zone"
+        }
+    },
+    "logging_and_diagnostics": {
+        "description": "EA must log all significant events with timestamps to the MT5 Experts log and optionally to a CSV file.",
+        "log_events": [
+            "EA initialized — account info snapshot",
+            "Kill zone opened / closed",
+            "Signal detected — score breakdown",
+            "Trade opened — lot, SL, TP, spread at entry, slippage",
+            "TP1 hit — partial close",
+            "TP2 hit — full close",
+            "SL hit",
+            "Breakeven moved",
+            "Daily trade/loss limit reached",
+            "Pattern detected on candle",
+            "FVG / OB created or invalidated"
+        ],
+        "csv_journal": {
+            "enabled": true,
+            "path": "MQL5/Files/CRT_TBS_Journal.csv",
+            "columns": [
+                "Timestamp",
+                "Event",
+                "Symbol",
+                "Timeframe",
+                "Signal_Score",
+                "Direction",
+                "Lot",
+                "Entry",
+                "SL",
+                "TP1",
+                "TP2",
+                "Spread",
+                "Slippage",
+                "Result_Pips",
+                "Balance_After"
+            ]
+        }
+    },
+    "xauusd_specific_notes": {
+        "description": "Gold-specific configuration considerations for the EA developer.",
+        "pip_definition": "XAUUSD: 1 pip = 0.10 price movement. 1 point = 0.01. Use Digits() and Point to normalize.",
+        "typical_spread": "20–80 points during active sessions. Set InpMax_Spread_Pips = 30 points as default.",
+        "volatility_notes": "XAUUSD can move 150–300 pips/day. Use higher SL buffers vs forex pairs.",
+        "news_filter_recommendation": "Avoid trading during high-impact news (NFP, CPI, FOMC). Consider integrating a news filter via external calendar or pausing EA manually.",
+        "min_lot": 0.01,
+        "contract_size": 100,
+        "margin_requirement_note": "Check SYMBOL_MARGIN_INITIAL for required margin per lot before each trade",
+        "suffix_note": "Account for broker symbol suffixes: GOLD.i#, XAUUSD.m, XAUUSDi etc. Implement auto-detection via SymbolSelect and MarketInfo.",
+        "session_peak_volatility": "07:00–10:00 UTC (NY Open) is the highest-volume window for XAUUSD. Prioritize NY kill zone."
+    },
+    "code_structure_guidance": {
+        "description": "Recommended MQL5 file and class structure for maintainability.",
+        "files": {
+            "CRT_TBS_Gold_Scalper.mq5": "Main EA file — OnInit, OnDeinit, OnTick, OnChartEvent",
+            "Include/CRT_Analyzer.mqh": "CRT pattern detection class — AMD phases, FVG, OB, swing detection",
+            "Include/TBS_Sessions.mqh": "Kill zone management, timezone handling, session level drawing",
+            "Include/RiskManager.mqh": "Lot calculation, SL/TP computation, daily limit tracking",
+            "Include/Dashboard.mqh": "On-chart dashboard rendering and account info display",
+            "Include/PatternDetector.mqh": "Candlestick pattern detection — all named patterns",
+            "Include/TradeExecutor.mqh": "Order placement, modification, trailing stop logic",
+            "Include/Logger.mqh": "CSV journal and print logging"
+        },
+        "init_checklist": [
+            "Validate symbol is XAUUSD or Gold variant using SymbolSelect",
+            "Auto-detect broker timezone offset by comparing TimeCurrent() vs TimeGMT()",
+            "Set chart timeframe to InpLTF_Timeframe automatically",
+            "Subscribe to chart events for dashboard interactivity",
+            "Run initial HTF and MTF analysis on startup",
+            "Draw all session reference levels for the current and previous day",
+            "Display dashboard with live account info"
+        ]
+    },
+    "final_instructions_for_antigravity": {
+        "priority_1": "Implement every module described in this JSON. Do not omit the dashboard, candlestick annotations, multi-timeframe logic, or the TBS kill zone system.",
+        "priority_2": "All chart drawings must be object-based (ObjectCreate) and cleaned up in OnDeinit. No spaghetti drawing code.",
+        "priority_3": "The EA must be compilable in MetaEditor MT5 with zero errors and zero warnings.",
+        "priority_4": "Use CTrade class from <Trade/Trade.mqh> for order execution. Do not use legacy OrderSend.",
+        "priority_5": "Risk management must handle edge cases: zero balance, zero margin, symbol not found, market closed.",
+        "priority_6": "Make InpBrokerUTC_Offset auto-detectable — compare TimeCurrent() vs TimeGMT() on init.",
+        "priority_7": "The scalper mode (InpScalper_Mode=true) should use tighter TP/SL, M5 LTF, and only NY+London kill zones by default.",
+        "priority_8": "Comment every major function block with the strategy rationale, not just what the code does."
+    }
+}
