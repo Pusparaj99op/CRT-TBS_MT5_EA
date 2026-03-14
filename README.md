@@ -37,6 +37,10 @@ The EA operates and references three unique timeframes simultaneously:
 *   **MTF (Mid Timeframe)**: Scans for overlapping points of interest like FVGs and Order Blocks.
 *   **LTF (Lower Timeframe)**: Granular analysis. Determines the manipulation wicks and confirms the execution trigger based on close values.
 
+## Strategy Flow
+
+![CRT+TBS Strategy Flow](SourceCodes/crt_tbs_strategy_flow.svg)
+
 ## Installation & Compilation
 
 Since directory structures in MetaEditor vary depending on your broker (e.g., XM, Vantage, IC Markets), follow these instructions to compile the EA locally:
@@ -46,7 +50,7 @@ Since directory structures in MetaEditor vary depending on your broker (e.g., XM
 3. Move the EA files to your MQL5 Experts data folder. You should place `CRT_TBS_Gold_Scalper.mq5` in your root `MQL5/Experts/` folder, and place all `.mqh` files into `MQL5/Experts/Include/`.
    * *Alternatively*, open the project folder `c:\Users\[User]\OneDrive\Documents\VS\CRT+TBS_MT5_EA` if you have linked it to MetaEditor.
 4. Open the primary file: `CRT_TBS_Gold_Scalper.mq5`.
-5. Press **F7** or click **Compile** to build the `.ex5` execution file. 
+5. Press **F7** or click **Compile** to build the `.ex5` execution file.
 6. Confirm there are **zero errors** in the MetaEditor toolbox log.
 
 ## Usage Limitations & Disclaimers
