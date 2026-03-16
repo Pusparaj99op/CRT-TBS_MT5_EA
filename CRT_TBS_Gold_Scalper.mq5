@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                         CRT_TBS_Gold_Scalper.mq5 |
-//|                                  Copyright 2026, Antigravity AI |
+//|                                  Copyright 2026, Antigravity AI  |
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, Antigravity AI"
@@ -113,36 +113,36 @@ int OnInit()
    // 1. Logger
    g_logger = new CLogger(true, "CRT_TBS_Journal.csv");
    g_logger.LogSimple("EA Initialized. Balance: " + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2));
-   
+
    // 2. TBS
    g_tbs = new CTBSSessions(InpBrokerUTC_Offset, InpAutoDetect_Timezone,
                             InpAsian_KZ_Enabled, InpLondon_KZ_Enabled, InpNY_KZ_Enabled, InpNYPM_KZ_Enabled,
                             InpDraw_KillZones, InpDraw_SessionLevels);
    g_tbs.Init();
-   
+
    // 3. Risk
    g_risk = new CRiskManager(InpRisk_Mode, InpFixed_Lot, InpRisk_Percent, InpMax_Lot,
                              InpMax_Spread_Pips, InpMax_Slippage_Points, InpMax_Daily_Trades, InpMax_Daily_Loss_Percent);
-                             
+
    // 4. Executor
    g_executor = new CTradeExecutor(g_magic, g_risk, g_tbs, InpAllow_Multiple_Trades, InpEntry_On_Close,
                                    InpTP1_RR, InpTP2_RR, InpTP1_ClosePercent, InpBreakeven_After_TP1, InpTrailing_Stop, InpTrail_Pips, InpMax_Slippage_Points);
-                                   
+
    // 5. Pattern
    g_pattern = new CPatternDetector(InpLTF_Timeframe, InpShow_CandleLabels);
-   
+
    // 6. Analyzer
    g_analyzer = new CCRTAnalyzer(InpHTF_Timeframe, InpMTF_Timeframe, InpLTF_Timeframe,
                                  InpManipulation_MinWickPips, InpFVG_MinGapPips, InpConsolidation_Candles,
                                  InpOB_Enabled, InpIDM_Enabled, InpShow_FVG_Zones, InpShow_OB_Zones, InpShow_PD_Zones, InpShow_BOS_CHOCH, InpShow_CandleLabels);
-   
+
    // 7. Dashboard
    if(InpShow_Dashboard)
      {
       g_dash = new CDashboard(InpDashboard_Corner, InpChart_Theme, g_risk, g_tbs);
       g_dash.DrawBase();
      }
-     
+
    return(INIT_SUCCEEDED);
   }
 
@@ -173,7 +173,7 @@ void OnDeinit(const int reason)
          ObjectDelete(0, name);
         }
      }
-     
+
    Comment("");
   }
 
@@ -183,11 +183,11 @@ void OnDeinit(const int reason)
 void OnTick()
   {
    if(Bars(Symbol(), InpLTF_Timeframe) < 200) return;
-   
+
    datetime cur_time = TimeCurrent();
    g_risk.UpdateDailyStats();
    g_tbs.Update();
-   
+
    // Exit logic triggers
    g_executor.ManageOpenPositions();
    if(mbl_IsEndOfSession(cur_time))
@@ -203,11 +203,11 @@ void OnTick()
    bool is_new_ltf = false;
    bool is_new_mtf = false;
    bool is_new_htf = false;
-   
+
    datetime ltf_time = iTime(Symbol(), InpLTF_Timeframe, 0);
    datetime mtf_time = iTime(Symbol(), InpMTF_Timeframe, 0);
    datetime htf_time = iTime(Symbol(), InpHTF_Timeframe, 0);
-   
+
    if(ltf_time != g_last_ltf_time) { is_new_ltf = true; g_last_ltf_time = ltf_time; }
    if(mtf_time != g_last_mtf_time) { is_new_mtf = true; g_last_mtf_time = mtf_time; }
    if(htf_time != g_last_htf_time) { is_new_htf = true; g_last_htf_time = htf_time; }
@@ -220,36 +220,36 @@ void OnTick()
       g_htf_bias = (c > ma) ? 1 : -1;
       g_bias_string = (g_htf_bias == 1) ? "BULLISH" : "BEARISH";
      }
-     
+
    if(is_new_mtf)
      {
       g_analyzer.AnalyzeFVG(1, InpMTF_Timeframe);
       g_analyzer.AnalyzeOB(1, InpMTF_Timeframe);
      }
-     
+
    // Ensure we evaluate strategy primarily on bar close for LTF
    if(is_new_ltf || !InpEntry_On_Close)
      {
       int shift = InpEntry_On_Close ? 1 : 0;
-      
+
       // 1. AMD Loop
       int manip_dir = 0;
       ENUM_AMD_PHASE phase = g_analyzer.UpdateAMD(shift, InpLTF_Timeframe, manip_dir);
-      
+
       // 2. Pattern Loop
       string pat_name;
       int pat_score;
       ENUM_PATTERN_TYPE ptype = g_pattern.DetectPattern(shift, pat_name, pat_score);
-      
+
       // 3. Signal Scoring Logic
       int total_score = 0;
       string kz_name;
       int kz_score;
-      
+
       if(g_tbs.IsKillZoneActive(kz_name, kz_score)) total_score += 1;
-      
+
       if(phase == AMD_MANIPULATION) total_score += 2;
-      
+
       // Only proceed if manipulation occurred and we are in a KZ
       if(phase == AMD_MANIPULATION && kz_score > 0)
         {
@@ -265,12 +265,12 @@ void OnTick()
            {
             total_score += 2; // Provide points anyway if bias off
            }
-           
+
          if(ptype == PATTERN_PIN_BAR || ptype == PATTERN_BULL_ENGULF || ptype == PATTERN_BEAR_ENGULF) total_score += 1;
-         
+
          // FVG/OB confluence (using simplified proximity for now)
          total_score += 1; // dummy scoring
-         
+
          // Evaluate Entry
          if(total_score >= 5)
            {
@@ -278,7 +278,7 @@ void OnTick()
             double entry_price = 0;
             double sl_price = 0;
             int direction = 0;
-            
+
             if(manip_dir == -1) // Buy Setup (Swept Low)
               {
                direction = -1;
@@ -291,12 +291,12 @@ void OnTick()
                entry_price = SymbolInfoDouble(Symbol(), SYMBOL_BID);
                sl_price = InpDynamic_SL ? (iHigh(Symbol(), InpLTF_Timeframe, shift) + InpSL_Buffer_Pips * SymbolInfoDouble(Symbol(), SYMBOL_POINT) * 10) : (entry_price + InpSL_Pips * SymbolInfoDouble(Symbol(), SYMBOL_POINT) * 10);
               }
-              
+
             g_executor.ExecuteSignal(direction, entry_price, sl_price, total_score, "CRT_MANIP");
            }
         }
      }
-     
+
    // Update Dashboard
    if(InpShow_Dashboard && g_dash != NULL)
      {
@@ -317,7 +317,7 @@ bool mbl_IsEndOfSession(datetime current_server_time)
    // Usually handled by CTBSSessions but extracted for simplicity
    MqlDateTime dt;
    TimeCurrent(dt);
-   
+
    // E.g., if offset is 2, 16:30 UTC represents 18:30 Broker Time
    // For now, allow trading globally, but can strictly shut if passed hour
    return false;
