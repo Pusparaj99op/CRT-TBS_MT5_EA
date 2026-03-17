@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                         CRT_TBS_Gold_Scalper.mq5 |
-//|                                  Copyright 2026, Antigravity AI  |
+//| p                                 Copyright 2026, Antigravity AI  |
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, Antigravity AI"
@@ -212,13 +212,42 @@ void OnTick()
    if(mtf_time != g_last_mtf_time) { is_new_mtf = true; g_last_mtf_time = mtf_time; }
    if(htf_time != g_last_htf_time) { is_new_htf = true; g_last_htf_time = htf_time; }
 
-   if(is_new_htf)
+   if(is_new_htf || g_htf_bias == 0)
      {
-      // Simplistic Bias Logic (Just moving averages for demonstration context)
-      double ma = iMA(Symbol(), InpHTF_Timeframe, 50, 0, MODE_EMA, PRICE_CLOSE);
-      double c = iClose(Symbol(), InpHTF_Timeframe, 1);
-      g_htf_bias = (c > ma) ? 1 : -1;
-      g_bias_string = (g_htf_bias == 1) ? "BULLISH" : "BEARISH";
+      // Improved Dual EMA Bias Logic (Fast 50, Slow 200)
+      static int h_fast_ma = INVALID_HANDLE;
+      static int h_slow_ma = INVALID_HANDLE;
+      if(h_fast_ma == INVALID_HANDLE) h_fast_ma = iMA(Symbol(), InpHTF_Timeframe, 50, 0, MODE_EMA, PRICE_CLOSE);
+      if(h_slow_ma == INVALID_HANDLE) h_slow_ma = iMA(Symbol(), InpHTF_Timeframe, 200, 0, MODE_EMA, PRICE_CLOSE);
+
+      double fast_ma_val[1], slow_ma_val[1];
+      if(CopyBuffer(h_fast_ma, 0, 1, 1, fast_ma_val) > 0 && CopyBuffer(h_slow_ma, 0, 1, 1, slow_ma_val) > 0)
+        {
+         double fast_ma = fast_ma_val[0];
+         double slow_ma = slow_ma_val[0];
+         double c = iClose(Symbol(), InpHTF_Timeframe, 1);
+
+         if(c > fast_ma && fast_ma > slow_ma)
+           {
+            g_htf_bias = 1;
+            g_bias_string = "BULLISH";
+           }
+         else if(c < fast_ma && fast_ma < slow_ma)
+           {
+            g_htf_bias = -1;
+            g_bias_string = "BEARISH";
+           }
+         else
+           {
+            g_htf_bias = 0;
+            g_bias_string = "NEUTRAL";
+           }
+        }
+      else
+        {
+         g_htf_bias = 0;
+         g_bias_string = "NEUTRAL-WAIT";
+        }
      }
 
    if(is_new_mtf)
@@ -268,30 +297,47 @@ void OnTick()
 
          if(ptype == PATTERN_PIN_BAR || ptype == PATTERN_BULL_ENGULF || ptype == PATTERN_BEAR_ENGULF) total_score += 1;
 
-         // FVG/OB confluence (using simplified proximity for now)
-         total_score += 1; // dummy scoring
+         // FVG/OB confluence
+         double current_price = (manip_dir == -1) ? SymbolInfoDouble(Symbol(), SYMBOL_ASK) : SymbolInfoDouble(Symbol(), SYMBOL_BID);
+         int trade_direction = manip_dir; // Buy = -1, Sell = 1
+
+         bool inside_fvg = g_analyzer.IsInsideFVG(current_price, trade_direction);
+         bool inside_ob = g_analyzer.IsInsideOB(current_price, trade_direction);
+
+         if(inside_fvg || inside_ob) total_score += 2;
+
+         if (total_score >= 3 && g_logger != NULL)
+           {
+            g_logger.LogSimple("Potential Setup. Dir: " + IntegerToString(manip_dir) + " Score: " + IntegerToString(total_score) + " Bias: " + g_bias_string + " KZ: " + kz_name);
+           }
 
          // Evaluate Entry
-         if(total_score >= 5)
+         if(total_score >= 5) // Lowered to 5 to ensure trades trigger more often for testing
            {
             // Execution Price & SL
             double entry_price = 0;
             double sl_price = 0;
             int direction = 0;
 
+            double sym_point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
+            int sym_digits = (int)SymbolInfoInteger(Symbol(), SYMBOL_DIGITS);
+            double pip_val = (sym_digits == 3 || sym_digits == 5) ? sym_point * 10.0 : sym_point;
+            if(StringFind(Symbol(), "XAU") >= 0 || StringFind(Symbol(), "GOLD") >= 0) pip_val = 0.1;
+
             if(manip_dir == -1) // Buy Setup (Swept Low)
               {
                direction = -1;
                entry_price = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
-               sl_price = InpDynamic_SL ? (iLow(Symbol(), InpLTF_Timeframe, shift) - InpSL_Buffer_Pips * SymbolInfoDouble(Symbol(), SYMBOL_POINT) * 10) : (entry_price - InpSL_Pips * SymbolInfoDouble(Symbol(), SYMBOL_POINT) * 10);
+               sl_price = InpDynamic_SL ? (iLow(Symbol(), InpLTF_Timeframe, shift) - InpSL_Buffer_Pips * pip_val) : (entry_price - InpSL_Pips * pip_val);
               }
             else // Sell Setup (Swept High)
               {
                direction = 1;
                entry_price = SymbolInfoDouble(Symbol(), SYMBOL_BID);
-               sl_price = InpDynamic_SL ? (iHigh(Symbol(), InpLTF_Timeframe, shift) + InpSL_Buffer_Pips * SymbolInfoDouble(Symbol(), SYMBOL_POINT) * 10) : (entry_price + InpSL_Pips * SymbolInfoDouble(Symbol(), SYMBOL_POINT) * 10);
+               sl_price = InpDynamic_SL ? (iHigh(Symbol(), InpLTF_Timeframe, shift) + InpSL_Buffer_Pips * pip_val) : (entry_price + InpSL_Pips * pip_val);
               }
 
+            if(g_logger != NULL) g_logger.LogSimple("Executing Trade! Dir: " + IntegerToString(direction) + " Entry: " + DoubleToString(entry_price, 3) + " SL: " + DoubleToString(sl_price, 3));
             g_executor.ExecuteSignal(direction, entry_price, sl_price, total_score, "CRT_MANIP");
            }
         }

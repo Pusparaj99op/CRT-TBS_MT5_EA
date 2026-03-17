@@ -193,7 +193,7 @@ void CDashboard::Update(double next_lot, string active_zone, string bias)
    CreateLabel("V_Pl", DoubleToString(pl, 2), val_x, base_y + 95, pl_clr, 8, true);
    
    // Margin
-   CreateLabel("V_FMarg", DoubleToString(AccountInfoDouble(ACCOUNT_FREEMARGIN), 2), val_x, base_y + 130, m_text_color, 8, true);
+   CreateLabel("V_FMarg", DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2), val_x, base_y + 130, m_text_color, 8, true);
    double mlevel = AccountInfoDouble(ACCOUNT_MARGIN_LEVEL);
    color ml_clr = mlevel < 150.0 && mlevel > 0 ? C'216,90,48' : m_text_color;
    CreateLabel("V_MLvl", mlevel == 0 ? "N/A" : DoubleToString(mlevel, 2) + "%", val_x, base_y + 145, ml_clr, 8, true);

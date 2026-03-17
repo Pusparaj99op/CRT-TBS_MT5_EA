@@ -84,7 +84,8 @@ CTradeExecutor::CTradeExecutor(ulong magic, CRiskManager *risk, CTBSSessions *tb
    
    m_trade.SetExpertMagicNumber(m_magic);
    m_trade.SetDeviationInPoints(m_max_slippage);
-   m_trade.SetTypeFilling(ORDER_FILLING_FOK); // FOK required
+   // Let CTrade automatically handle the filling mode
+   // m_trade.SetTypeFilling(ORDER_FILLING_FOK);
   }
 
 //+------------------------------------------------------------------+
@@ -116,15 +117,16 @@ int CTradeExecutor::GetOpenPositionsCount(void)
 //+------------------------------------------------------------------+
 bool CTradeExecutor::PlaceOrder(ENUM_ORDER_TYPE type, double vol, double price, double sl, double tp, string comment)
   {
-   m_trade.SetComment(comment);
    bool res = false;
    if(type == ORDER_TYPE_BUY)
      {
       res = m_trade.Buy(vol, Symbol(), price, sl, tp, comment);
+      if (!res && g_logger != NULL) g_logger.LogSimple("Buy Order Failed! Vol: " + DoubleToString(vol, 2) + " Code: " + IntegerToString(m_trade.ResultRetcode()));
      }
    else
      {
       res = m_trade.Sell(vol, Symbol(), price, sl, tp, comment);
+      if (!res && g_logger != NULL) g_logger.LogSimple("Sell Order Failed! Vol: " + DoubleToString(vol, 2) + " Code: " + IntegerToString(m_trade.ResultRetcode()));
      }
      
    if(res && g_logger != NULL)
@@ -144,7 +146,7 @@ void CTradeExecutor::ExecuteSignal(int direction, double entry_price, double sl_
    
    if(!m_risk.IsSpreadAcceptable())
      {
-      if(g_logger != NULL) g_logger.LogSimple("Signal Rejected: Spread too high");
+      if(g_logger != NULL) g_logger.LogSimple("Signal Rejected: Spread too high: " + IntegerToString(SymbolInfoInteger(Symbol(), SYMBOL_SPREAD)));
       return;
      }
      
@@ -252,7 +254,12 @@ void CTradeExecutor::ManageOpenPositions(void)
          // Trailing Stop logic
          if(m_trailing && profit_pips >= risk_pips)
            {
-            double trail = m_trail_pips * m_point * 10;
+            double sym_point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
+            int sym_digits = (int)SymbolInfoInteger(Symbol(), SYMBOL_DIGITS);
+            double pip_val = (sym_digits == 3 || sym_digits == 5) ? sym_point * 10.0 : sym_point;
+            if(StringFind(Symbol(), "XAU") >= 0 || StringFind(Symbol(), "GOLD") >= 0) pip_val = 0.1;
+
+            double trail = m_trail_pips * pip_val;
             if(type == POSITION_TYPE_BUY && current_price - trail > new_sl)
               { new_sl = current_price - trail; modified = true; }
             if(type == POSITION_TYPE_SELL && current_price + trail < new_sl && new_sl > 0)

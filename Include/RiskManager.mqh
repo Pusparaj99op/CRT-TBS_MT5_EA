@@ -143,10 +143,14 @@ bool CRiskManager::IsSpreadAcceptable(void)
   {
    long spread = SymbolInfoInteger(Symbol(), SYMBOL_SPREAD);
    
-   // XAUUSD specific scaling handling per SourceCode note: 
-   // max spread is defined in 'points' for Gold if treated as 30 points.
-   // E.g., parameter 30.0 implies 30 points.
-   if(spread > m_max_spread_pips)
+   double sym_point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
+   int sym_digits = (int)SymbolInfoInteger(Symbol(), SYMBOL_DIGITS);
+   double pip_val = (sym_digits == 3 || sym_digits == 5) ? sym_point * 10.0 : sym_point;
+   if(StringFind(Symbol(), "XAU") >= 0 || StringFind(Symbol(), "GOLD") >= 0) pip_val = 0.1;
+
+   double max_spread_points = m_max_spread_pips * (pip_val / sym_point);
+
+   if(spread > max_spread_points)
      {
       return false;
      }
@@ -188,7 +192,7 @@ bool CRiskManager::IsMarginSufficient(double lot_size)
    
    if(OrderCalcMargin(ORDER_TYPE_BUY, Symbol(), lot_size, SymbolInfoDouble(Symbol(), SYMBOL_ASK), margin_req))
      {
-      double free_margin = AccountInfoDouble(ACCOUNT_FREEMARGIN);
+      double free_margin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
       return (free_margin > margin_req);
      }
    return false; // Calculation failed

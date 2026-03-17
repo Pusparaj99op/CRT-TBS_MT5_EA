@@ -29,6 +29,14 @@ struct SAccumulationRange
    int       candles_count;
   };
 
+struct SZone
+  {
+   bool      active;
+   double    high_price;
+   double    low_price;
+   datetime  time;
+  };
+
 class CCRTAnalyzer
   {
 private:
@@ -44,6 +52,7 @@ private:
    
    double            m_point;
    int               m_digits;
+   double            m_pip_value;
 
    bool              m_draw_fvg;
    bool              m_draw_ob;
@@ -52,6 +61,11 @@ private:
    bool              m_draw_labels;
 
    SAccumulationRange m_acc_range;
+   
+   SZone             m_last_bull_fvg;
+   SZone             m_last_bear_fvg;
+   SZone             m_last_bull_ob;
+   SZone             m_last_bear_ob;
    
    // Drawing helpers
    void              DrawFVGBox(string name, datetime t1, double p1, double p2, color clr);
@@ -75,6 +89,9 @@ public:
    
    double            GetAccumulationHigh() { return m_acc_range.high_price; }
    double            GetAccumulationLow()  { return m_acc_range.low_price; }
+   
+   bool              IsInsideFVG(double price, int direction);
+   bool              IsInsideOB(double price, int direction);
   };
 
 //+------------------------------------------------------------------+
@@ -104,11 +121,18 @@ CCRTAnalyzer::CCRTAnalyzer(ENUM_TIMEFRAMES htf, ENUM_TIMEFRAMES mtf, ENUM_TIMEFR
    
    m_point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
    m_digits = (int)SymbolInfoInteger(Symbol(), SYMBOL_DIGITS);
+   m_pip_value = (m_digits == 3 || m_digits == 5) ? m_point * 10.0 : m_point;
+   if(StringFind(Symbol(), "XAU") >= 0 || StringFind(Symbol(), "GOLD") >= 0) m_pip_value = 0.1; // 1 pip = 10 cents for Gold
    
    m_acc_range.active = false;
    m_acc_range.high_price = 0;
    m_acc_range.low_price = 0;
    m_acc_range.candles_count = 0;
+   
+   m_last_bull_fvg.active = false;
+   m_last_bear_fvg.active = false;
+   m_last_bull_ob.active = false;
+   m_last_bear_ob.active = false;
   }
 
 //+------------------------------------------------------------------+
@@ -137,11 +161,15 @@ void CCRTAnalyzer::AnalyzeFVG(int index, ENUM_TIMEFRAMES tf)
    double candle_plus_1_low = l[2];
    datetime event_time = t[1]; // middle candle forms the gap
    
-   double min_gap = m_fvg_min_pips * m_point * 10; // assuming pips to points
+   double min_gap = m_fvg_min_pips * m_pip_value; 
    
    // Bullish FVG: candle[1].Low > candle[-1].High
    if(candle_plus_1_low > candle_minus_1_high && (candle_plus_1_low - candle_minus_1_high) >= min_gap)
      {
+      m_last_bull_fvg.active = true;
+      m_last_bull_fvg.high_price = candle_plus_1_low;
+      m_last_bull_fvg.low_price = candle_minus_1_high;
+      m_last_bull_fvg.time = event_time;
       if(m_draw_fvg)
         {
          string name = "CRT_FVG_BULL_" + TimeToString(event_time);
@@ -152,6 +180,10 @@ void CCRTAnalyzer::AnalyzeFVG(int index, ENUM_TIMEFRAMES tf)
    // Bearish FVG: candle[1].High < candle[-1].Low
    if(candle_plus_1_high < candle_minus_1_low && (candle_minus_1_low - candle_plus_1_high) >= min_gap)
      {
+      m_last_bear_fvg.active = true;
+      m_last_bear_fvg.high_price = candle_minus_1_low;
+      m_last_bear_fvg.low_price = candle_plus_1_high;
+      m_last_bear_fvg.time = event_time;
       if(m_draw_fvg)
         {
          string name = "CRT_FVG_BEAR_" + TimeToString(event_time);
@@ -181,8 +213,12 @@ void CCRTAnalyzer::AnalyzeOB(int index, ENUM_TIMEFRAMES tf)
    double currBody = c[1] - o[1];
    
    // Bullish OB: last bearish candle before strong bullish impulse
-   if(prevBear && currBull && currBody > 20 * m_point * 10 && c[1] > h[0])
+   if(prevBear && currBull && currBody > 20 * m_pip_value && c[1] > h[0])
      {
+      m_last_bull_ob.active = true;
+      m_last_bull_ob.high_price = h[0];
+      m_last_bull_ob.low_price = l[0];
+      m_last_bull_ob.time = t[0];
       if(m_draw_ob)
         {
          string name = "CRT_OB_BULL_" + TimeToString(t[0]);
@@ -195,8 +231,12 @@ void CCRTAnalyzer::AnalyzeOB(int index, ENUM_TIMEFRAMES tf)
    currBody = o[1] - c[1];
    
    // Bearish OB: last bullish candle before strong bearish impulse
-   if(prevBull && currBear && currBody > 20 * m_point * 10 && c[1] < l[0])
+   if(prevBull && currBear && currBody > 20 * m_pip_value && c[1] < l[0])
      {
+      m_last_bear_ob.active = true;
+      m_last_bear_ob.high_price = h[0];
+      m_last_bear_ob.low_price = l[0];
+      m_last_bear_ob.time = t[0];
       if(m_draw_ob)
         {
          string name = "CRT_OB_BEAR_" + TimeToString(t[0]);
@@ -240,7 +280,9 @@ ENUM_AMD_PHASE CCRTAnalyzer::UpdateAMD(int index, ENUM_TIMEFRAMES tf, int &manip
             if(lows[i] < min_l) min_l = lows[i];
            }
          double range = max_h - min_l;
-         if(range < 50 * m_point * 10) // Range is tight (50 pips logic)
+         // Adjusting range check for consolidation: 50 pips is a good universal threshold
+         double max_acc_range = 50.0 * m_pip_value;
+         if(range < max_acc_range) // Range is appropriately tight
            {
             m_acc_range.active = true;
             m_acc_range.high_price = max_h;
@@ -255,7 +297,8 @@ ENUM_AMD_PHASE CCRTAnalyzer::UpdateAMD(int index, ENUM_TIMEFRAMES tf, int &manip
    else
      {
       // We have an active accumulation. Check for Manipulation sweep.
-      double wick_req = m_min_wick_pips * m_point * 10;
+      // Make wick requirement robust for Gold (treat 1 pip as 0.1 for XAUUSD strictly)
+      double wick_req = m_min_wick_pips * m_pip_value;
       
       // Sweep Highs
       if(cur_h > m_acc_range.high_price + wick_req && cur_c < m_acc_range.high_price)
@@ -306,6 +349,38 @@ void CCRTAnalyzer::AnalyzeStructure(ENUM_TIMEFRAMES tf)
   {
    // Basic ZigZag-like swing detection
    if(!m_draw_bos) return;
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool CCRTAnalyzer::IsInsideFVG(double price, int direction)
+  {
+   if(direction == -1) // Buy setup - check Bullish FVG
+     {
+      return (m_last_bull_fvg.active && price <= m_last_bull_fvg.high_price && price >= m_last_bull_fvg.low_price);
+     }
+   else if(direction == 1) // Sell setup - check Bearish FVG
+     {
+      return (m_last_bear_fvg.active && price <= m_last_bear_fvg.high_price && price >= m_last_bear_fvg.low_price);
+     }
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool CCRTAnalyzer::IsInsideOB(double price, int direction)
+  {
+   if(direction == -1) // Buy setup - check Bullish OB
+     {
+      return (m_last_bull_ob.active && price <= m_last_bull_ob.high_price && price >= m_last_bull_ob.low_price);
+     }
+   else if(direction == 1) // Sell setup - check Bearish OB
+     {
+      return (m_last_bear_ob.active && price <= m_last_bear_ob.high_price && price >= m_last_bear_ob.low_price);
+     }
+   return false;
   }
 
 //+------------------------------------------------------------------+
