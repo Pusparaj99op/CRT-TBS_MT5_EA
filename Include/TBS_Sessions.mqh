@@ -16,23 +16,23 @@ class CTBSSessions
 private:
    int               m_utc_offset;
    bool              m_auto_detect;
-   
+
    bool              m_asian_kz;
    bool              m_london_kz;
    bool              m_ny_kz;
    bool              m_nypm_kz;
-   
+
    bool              m_draw_zones;
    bool              m_draw_levels;
-   
+
    datetime          m_current_day;
-   
+
    double            m_midnight_open;
    double            m_london_open;
    double            m_ny_open;
    double            m_pdh;
    double            m_pdl;
-   
+
    void              CalculateUTCOffset(void);
    void              DrawRectangle(string name, datetime time1, datetime time2, double price1, double price2, color clr);
    void              DrawHLine(string name, double price, color clr, ENUM_LINE_STYLE style, string label);
@@ -45,13 +45,13 @@ public:
                                   bool asian_kz, bool london_kz, bool ny_kz, bool nypm_kz,
                                   bool draw_zones, bool draw_levels);
                     ~CTBSSessions(void);
-                    
+
    void              Init(void);
    void              Update(void);
-   
+
    bool              IsAnyKillZoneActive(void);
    bool              IsKillZoneActive(string &zone_name, int &score);
-   
+
    double            GetMidnightOpen() { return m_midnight_open; }
    double            GetLondonOpen()   { return m_london_open; }
    double            GetNYOpen()       { return m_ny_open; }
@@ -74,7 +74,7 @@ CTBSSessions::CTBSSessions(int manual_offset, bool auto_detect,
    m_nypm_kz = nypm_kz;
    m_draw_zones = draw_zones;
    m_draw_levels = draw_levels;
-   
+
    m_current_day = 0;
    m_midnight_open = 0;
    m_london_open = 0;
@@ -106,13 +106,23 @@ void CTBSSessions::CalculateUTCOffset(void)
   {
    if(m_auto_detect || m_utc_offset == 999)
      {
-      // Broker time = Server time. TimeCurrent() returns Server Time
       datetime server_time = TimeCurrent();
       datetime gmt_time = TimeGMT();
-      m_utc_offset = (int)MathRound((double)(server_time - gmt_time) / 3600.0);
-      if(g_logger != NULL)
+      int offset = (int)MathRound((double)(server_time - gmt_time) / 3600.0);
+      // Clamp to a valid UTC range [-12, 14].
+      // In the Strategy Tester, TimeGMT() can return real wall-clock time while
+      // TimeCurrent() returns simulated historical time, producing a huge offset.
+      if(offset < -12 || offset > 14)
         {
-         g_logger.LogSimple("CTBSSessions: Auto-detected UTC offset = " + IntegerToString(m_utc_offset) + " hours.");
+         offset = m_utc_offset; // Fall back to the manually-set input value
+         if(g_logger != NULL)
+            g_logger.LogSimple("CTBSSessions: TimeGMT() anomaly in tester (offset=" + IntegerToString(offset) + "). Using manual UTC offset = " + IntegerToString(m_utc_offset));
+        }
+      else
+        {
+         m_utc_offset = offset;
+         if(g_logger != NULL)
+            g_logger.LogSimple("CTBSSessions: Auto-detected UTC offset = " + IntegerToString(m_utc_offset) + " hours.");
         }
      }
   }
@@ -122,16 +132,9 @@ void CTBSSessions::CalculateUTCOffset(void)
 //+------------------------------------------------------------------+
 datetime CTBSSessions::GetBrokerTimeFromUTC(datetime day_start, int utc_hour, int utc_minute)
   {
-   // day_start is aligned to 00:00:00 of broker server day.
-   // Wait, if day_start is broker local, 00:00 broker time = (0 - offset) UTC time.
-   // To get a target UTC time translated to broker time on the SAME active trading day:
-   // Example: UTC 02:00 -> Broker Time = 02:00 + offset
    int broker_hour = utc_hour + m_utc_offset;
-   
-   // Normalize hours (not handling full weekend logic here, assuming standard weekday offset)
-   if(broker_hour >= 24) broker_hour -= 24;
-   if(broker_hour < 0) broker_hour += 24;
-   
+   // Proper modulo wrap — handles any offset without day overflow
+   broker_hour = ((broker_hour % 24) + 24) % 24;
    return day_start + (broker_hour * 3600) + (utc_minute * 60);
   }
 
@@ -142,7 +145,7 @@ void CTBSSessions::Update(void)
   {
    datetime current_time = TimeCurrent();
    datetime day_start = current_time - (current_time % 86400); // 00:00:00 of current broker day
-   
+
    if(day_start != m_current_day)
      {
       m_current_day = day_start;
@@ -152,12 +155,12 @@ void CTBSSessions::Update(void)
          DrawZonesForDay(m_current_day);
         }
      }
-   
+
    // Check session price openings if they act as reference and time has passed
    datetime ldn_time = GetBrokerTimeFromUTC(m_current_day, 2, 0); // 02:00 UTC
    datetime ny_time = GetBrokerTimeFromUTC(m_current_day, 7, 0);  // 07:00 UTC
    datetime midnight_time = GetBrokerTimeFromUTC(m_current_day, 0, 0); // 00:00 UTC
-   
+
    if(m_london_open == 0 && current_time >= ldn_time)
      {
       double open[];
@@ -167,7 +170,7 @@ void CTBSSessions::Update(void)
          if(m_draw_levels) DrawHLine("CRT_LDN_Open", m_london_open, clrCornflowerBlue, STYLE_DASH, "LDN Open");
         }
      }
-     
+
    if(m_ny_open == 0 && current_time >= ny_time)
      {
       double open[];
@@ -198,12 +201,12 @@ void CTBSSessions::UpdateLevels(datetime current_time)
    m_midnight_open = 0;
    m_london_open = 0;
    m_ny_open = 0;
-   
+
    // Fetch PDH and PDL
    double high[], low[];
    if(CopyHigh(Symbol(), PERIOD_D1, 1, 1, high) > 0) m_pdh = high[0];
    if(CopyLow(Symbol(), PERIOD_D1, 1, 1, low) > 0) m_pdl = low[0];
-   
+
    if(m_draw_levels)
      {
       if(m_pdh > 0) DrawHLine("CRT_PDH", m_pdh, clrAquamarine, STYLE_DOT, "PDH");
@@ -219,7 +222,7 @@ void CTBSSessions::DrawZonesForDay(datetime day_start)
    string prefix = "CRT_KZ_" + TimeToString(day_start, TIME_DATE) + "_";
    double top = 0; // We will use a reasonably large box for background
    double bot = 0;
-   
+
    // Try to get max min of the day
    double high[], low[];
    if(CopyHigh(Symbol(), PERIOD_D1, 0, 1, high) > 0 && CopyLow(Symbol(), PERIOD_D1, 0, 1, low) > 0)
@@ -234,21 +237,21 @@ void CTBSSessions::DrawZonesForDay(datetime day_start)
       datetime t2 = GetBrokerTimeFromUTC(day_start, 3, 0);
       DrawRectangle(prefix + "Asian", t1, t2, top, bot, clrThistle);
      }
-     
+
    if(m_london_kz)
      {
       datetime t1 = GetBrokerTimeFromUTC(day_start, 2, 0);
       datetime t2 = GetBrokerTimeFromUTC(day_start, 5, 0);
       DrawRectangle(prefix + "London", t1, t2, top, bot, clrLightSkyBlue);
      }
-     
+
    if(m_ny_kz)
      {
       datetime t1 = GetBrokerTimeFromUTC(day_start, 7, 0);
       datetime t2 = GetBrokerTimeFromUTC(day_start, 10, 0);
       DrawRectangle(prefix + "NY", t1, t2, top, bot, clrNavajoWhite);
      }
-     
+
    if(m_nypm_kz)
      {
       datetime t1 = GetBrokerTimeFromUTC(day_start, 13, 0);
@@ -305,10 +308,10 @@ bool CTBSSessions::IsKillZoneActive(string &zone_name, int &score)
   {
    datetime current = TimeCurrent();
    datetime day_start = current - (current % 86400);
-   
+
    zone_name = "None";
    score = 0;
-   
+
    if(m_asian_kz)
      {
       datetime t1 = GetBrokerTimeFromUTC(day_start, 0, 0);
@@ -320,7 +323,7 @@ bool CTBSSessions::IsKillZoneActive(string &zone_name, int &score)
          return true;
         }
      }
-     
+
    if(m_london_kz)
      {
       datetime t1 = GetBrokerTimeFromUTC(day_start, 2, 0);
@@ -332,7 +335,7 @@ bool CTBSSessions::IsKillZoneActive(string &zone_name, int &score)
          return true;
         }
      }
-     
+
    if(m_ny_kz)
      {
       datetime t1 = GetBrokerTimeFromUTC(day_start, 7, 0);
@@ -344,7 +347,7 @@ bool CTBSSessions::IsKillZoneActive(string &zone_name, int &score)
          return true;
         }
      }
-     
+
    if(m_nypm_kz)
      {
       datetime t1 = GetBrokerTimeFromUTC(day_start, 13, 0);
@@ -356,7 +359,7 @@ bool CTBSSessions::IsKillZoneActive(string &zone_name, int &score)
          return true;
         }
      }
-     
+
    return false;
   }
 
