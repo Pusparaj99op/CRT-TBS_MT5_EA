@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                         CRT_TBS_Gold_Scalper.mq5 |
-//| p                                 Copyright 2026, Antigravity AI  |
+//| p      r                           Copyright 2026, Antigravity AI  |
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, Antigravity AI"
@@ -287,12 +287,17 @@ void OnTick()
            {
             if((g_htf_bias == 1 && manip_dir == -1) || (g_htf_bias == -1 && manip_dir == 1))
               {
-               total_score += 2;
+               total_score += 2; // Aligned: HTF trend matches manipulation direction
               }
+            else if(g_htf_bias == 0)
+              {
+               total_score += 1; // Neutral HTF — partial credit, setup still valid
+              }
+            // Opposite bias = 0 pts (counter-trend, higher risk, skip)
            }
          else
            {
-            total_score += 2; // Provide points anyway if bias off
+            total_score += 2; // Bias confirmation disabled — award full points
            }
 
          if(ptype == PATTERN_PIN_BAR || ptype == PATTERN_BULL_ENGULF || ptype == PATTERN_BEAR_ENGULF) total_score += 1;
@@ -311,8 +316,8 @@ void OnTick()
             g_logger.LogSimple("Potential Setup. Dir: " + IntegerToString(manip_dir) + " Score: " + IntegerToString(total_score) + " Bias: " + g_bias_string + " KZ: " + kz_name);
            }
 
-         // Evaluate Entry
-         if(total_score >= 5) // Lowered to 5 to ensure trades trigger more often for testing
+         // Minimum score 4: KZ(1)+Manip(2)+NeutralBias(1) or KZ(1)+Manip(2)+AlignedBias(2)
+         if(total_score >= 4)
            {
             // Execution Price & SL
             double entry_price = 0;
@@ -340,6 +345,14 @@ void OnTick()
             if(g_logger != NULL) g_logger.LogSimple("Executing Trade! Dir: " + IntegerToString(direction) + " Entry: " + DoubleToString(entry_price, 3) + " SL: " + DoubleToString(sl_price, 3));
             g_executor.ExecuteSignal(direction, entry_price, sl_price, total_score, "CRT_MANIP");
            }
+         else if(total_score < 4 && g_logger != NULL)
+           {
+            g_logger.LogSimple("Setup skipped. Score=" + IntegerToString(total_score) + " (need 4). Bias=" + g_bias_string + " FVG=" + IntegerToString(inside_fvg) + " OB=" + IntegerToString(inside_ob));
+           }
+        }
+      else if(phase == AMD_MANIPULATION && kz_score == 0 && g_logger != NULL)
+        {
+         g_logger.LogSimple("Manipulation detected outside KZ (skipped). Dir=" + IntegerToString(manip_dir) + " Bias=" + g_bias_string);
         }
      }
 
